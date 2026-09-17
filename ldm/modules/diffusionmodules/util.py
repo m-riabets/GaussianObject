@@ -12,6 +12,7 @@ import os
 import math
 import torch
 import torch.nn as nn
+import torch.utils.checkpoint
 import numpy as np
 from einops import repeat
 
@@ -105,13 +106,18 @@ def checkpoint(func, inputs, params, flag):
     reduced memory at the expense of extra compute in the backward pass.
     :param func: the function to evaluate.
     :param inputs: the argument sequence to pass to `func`.
-    :param params: a sequence of parameters `func` depends on but does not
-                   explicitly take as arguments.
+    :param params: unused; kept for call-site compatibility. Non-reentrant
+                   checkpointing (below) tracks parameters used inside `func`
+                   automatically and does not need them listed explicitly.
     :param flag: if False, disable gradient checkpointing.
     """
     if flag:
-        args = tuple(inputs) + tuple(params)
-        return CheckpointFunction.apply(func, len(inputs), *args)
+        # use_reentrant=False: the old reentrant implementation (CheckpointFunction
+        # below) fails with "One of the differentiated Tensors does not require
+        # grad" when func mixes frozen and trainable parameters (e.g. LoRA
+        # fine-tuning with the base model frozen). Non-reentrant checkpointing is
+        # PyTorch's documented fix for this exact case.
+        return torch.utils.checkpoint.checkpoint(func, *inputs, use_reentrant=False)
     else:
         return func(*inputs)
 

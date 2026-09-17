@@ -199,7 +199,7 @@ class GaussianDreamer(BaseLift3DSystem):
         self.point_cloud = self.init_pointcloud(self.init_dreamer)
 
         # metrics
-        self.psnr = PSNR().to("cuda")
+        self.psnr = PSNR(data_range=1.0).to("cuda")
         self.ssim = SSIM().to("cuda")
         self.lpips = LPIPS('vgg').to("cuda")
         self.lpips_loss = LPIPS('vgg').to("cuda")
@@ -358,8 +358,8 @@ class GaussianDreamer(BaseLift3DSystem):
     def on_fit_start(self) -> None:
         super().on_fit_start()
         self.controlnet = create_model(f'models/{self.cfg.model_name}.yaml').cpu()
-        self.controlnet.load_state_dict(load_state_dict('models/v1-5-pruned.ckpt', location='cuda'), strict=False)
-        self.controlnet.load_state_dict(load_state_dict(f'models/{self.cfg.model_name}.pth', location='cuda'), strict=False)
+        self.controlnet.load_state_dict(load_state_dict('models/v1-5-pruned.ckpt', location='cpu'), strict=False)
+        self.controlnet.load_state_dict(load_state_dict(f'models/{self.cfg.model_name}.pth', location='cpu'), strict=False)
         lora_config = {
             nn.Embedding: {
                 "weight": partial(LoRAParametrization.from_embedding, rank=self.cfg.lora_rank)
@@ -381,7 +381,7 @@ class GaussianDreamer(BaseLift3DSystem):
                     add_lora(module, lora_config=lora_config)
         if self.cfg.add_clip_lora:
             add_lora(self.controlnet.cond_stage_model, lora_config=lora_config)
-        self.controlnet.load_state_dict(load_state_dict(f'{self.cfg.exp_name}/ckpts-lora/{self.cfg.lora_name}', location='cuda'), strict=False)
+        self.controlnet.load_state_dict(load_state_dict(f'{self.cfg.exp_name}/ckpts-lora/{self.cfg.lora_name}', location='cpu'), strict=False)
         self.controlnet = self.controlnet.cuda()
         self.ddim_sampler = DDIMSampler(self.controlnet)
 

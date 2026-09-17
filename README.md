@@ -115,6 +115,105 @@ python setup.py build_ext --inplace
 cd ../../../..
 ```
 
+### Troubleshooting: Modern GPUs (RTX 50-series / Blackwell, sm_120+) and newer toolchains
+
+The steps above assume CUDA 11.8 and an older `setuptools`/build toolchain. On a newer system (e.g. Ubuntu with GCC >11, `setuptools` >=81, or a Blackwell GPU such as the RTX 50-series), `pip install -r requirements.txt` can fail in several ways. Apply these fixes, in order, as needed:
+
+**1. `pip install -r requirements.txt` fails with `ModuleNotFoundError: No module named 'torch'` while building a submodule**
+
+pip's build isolation hides your already-installed `torch` from submodules that need it at build time (e.g. `diff-gaussian-rasterization`). Always install with:
+
+```sh
+pip install -r requirements.txt --no-build-isolation
+```
+
+**2. Building the `CLIP` submodule fails with `ModuleNotFoundError: No module named 'pkg_resources'`**
+
+Recent `setuptools` (>=81) dropped the bundled `pkg_resources` module that `CLIP/setup.py` still imports. Downgrade `setuptools`:
+
+```sh
+pip install "setuptools<81"
+```
+
+**3. `ResolutionImpossible` / conflicting `diff-gaussian-rasterization` versions**
+
+`submodules/diff-gaussian-rasterization` and `submodules/diff-gaussian-rasterization-w-pose` both declare the pip package name `diff_gaussian_rasterization`, even though the code (`gaussian_renderer/__init__.py`) expects to `import diff_gaussian_rasterization_w_pose` as a separate package. Rename the w-pose submodule's package so it doesn't collide with the base one:
+
+```sh
+cd submodules/diff-gaussian-rasterization-w-pose
+git mv diff_gaussian_rasterization diff_gaussian_rasterization_w_pose
+```
+
+Then edit its `setup.py`, changing:
+
+```python
+name="diff_gaussian_rasterization",
+packages=['diff_gaussian_rasterization'],
+ext_modules=[
+    CUDAExtension(
+        name="diff_gaussian_rasterization._C",
+```
+
+to:
+
+```python
+name="diff_gaussian_rasterization_w_pose",
+packages=['diff_gaussian_rasterization_w_pose'],
+ext_modules=[
+    CUDAExtension(
+        name="diff_gaussian_rasterization_w_pose._C",
+```
+
+(No other files need changes — the package's own `__init__.py` imports `_C` via a relative import, so it isn't affected by the rename.)
+
+**4. `RuntimeError: The detected CUDA version (X) mismatches the version that was used to compile PyTorch (11.8)` — or your GPU is unsupported (e.g. `sm_120 is not compatible with the current PyTorch installation`)**
+
+Blackwell GPUs (RTX 50-series, compute capability `sm_120`) are not supported by CUDA 11.8 / PyTorch `+cu118` at all (max supported is `sm_90`). If you have such a GPU, switch to CUDA 12.8+ instead of following the CUDA 11.8 instructions above:
+
+```sh
+# remove any mismatched CUDA 11.8 toolkit first, if installed
+conda remove -y cuda-toolkit cuda-nvcc cuda-compiler cuda-libraries cuda-libraries-dev
+
+# install a matching CUDA 12.8 toolkit into your (conda) environment
+conda install -y -c nvidia/label/cuda-12.8.0 cuda-toolkit
+
+# reinstall PyTorch for CUDA 12.8
+pip uninstall -y torch torchvision
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+
+# verify: expect no "unsupported" warning, and sm_120 in the arch list
+python -c "import torch; print(torch.version.cuda); print(torch.cuda.get_device_name(0)); print(torch.cuda.get_arch_list())"
+
+# point the extension builds at the new toolkit
+export CUDA_HOME=$CONDA_PREFIX
+```
+
+This only affects which toolchain compiles the CUDA extensions — the rasterizer/GaussianObject algorithms themselves are unaffected by CUDA version.
+
+**5. Building `simple-knn` fails with `error: identifier "FLT_MAX" is undefined`**
+
+Newer/stricter CUDA+GCC toolchains no longer transitively pull in `<cfloat>` through other headers. `submodules/simple-knn/simple_knn.cu` uses `FLT_MAX` without including it directly. Add the include near the top of the file:
+
+```diff
++#include <cfloat>
+ #include "cuda_runtime.h"
+ #include "device_launch_parameters.h"
+ #include "simple_knn.h"
+```
+
+**After applying the fixes you need**, retry:
+
+```sh
+export CUDA_HOME=$CONDA_PREFIX   # if you changed CUDA toolkit versions
+pip install -r requirements.txt --no-build-isolation
+```
+
+If a specific submodule's build cache is stale from a previous failed attempt, force a clean rebuild of just that one:
+
+```sh
+pip install --no-build-isolation --no-cache-dir --force-reinstall ./submodules/<name>
+```
+
 ### Pretrained ControlNet Model
 
 Pretrained weights of Stable Diffusion v1.5 and ControlNet Tile need to be put in `models/` following the instruction of [ControlNet 1.1](https://github.com/lllyasviel/ControlNet-v1-1-nightly) with our given script:

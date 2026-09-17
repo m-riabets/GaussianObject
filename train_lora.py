@@ -51,6 +51,7 @@ if __name__ == '__main__':
     model = create_model(f'./models/{args.model_name}.yaml').cpu()
     model.load_state_dict(load_state_dict('./models/v1-5-pruned.ckpt', location='cpu'), strict=False)
     model.load_state_dict(load_state_dict(f'./models/{args.model_name}.pth', location='cpu'), strict=False)
+    model.requires_grad_(False)
     model.learning_rate = args.learning_rate
     model.sd_locked = args.sd_locked
     model.only_mid_control = args.only_mid_control

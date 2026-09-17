@@ -146,7 +146,7 @@ if __name__ == "__main__":
     original_images = [Image.open(image) for image in images]
     masks = sorted(os.listdir(os.path.join(scene_path, 'masks')))
     masks = [os.path.join(scene_path, 'masks', masks[id]) for id in ids]
-    original_masks = [np.array(Image.open(mask).resize(image.size))[:, :, 0] / 255.0 for mask, image in zip(masks, original_images)]
+    original_masks = [np.array(Image.open(mask).convert('L').resize(image.size)) / 255.0 for mask, image in zip(masks, original_images)]
 
     loaded_images = load_images(images, size=512)
     pairs = make_pairs(loaded_images, scene_graph='complete', prefilter=None, symmetrize=True)

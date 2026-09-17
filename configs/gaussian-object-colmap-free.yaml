@@ -67,7 +67,7 @@ trainer:
   num_sanity_val_steps: 0
   limit_val_batches: 0
   enable_progress_bar: true
-  precision: 32 
+  precision: 32
 
 checkpoint:
   save_last: true # save at each validation time

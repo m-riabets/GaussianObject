@@ -32,7 +32,7 @@ def leave_one_out_training(args, dataset, opt, pipe, testing_iterations, saving_
     scene = Scene(dataset, gaussians, shuffle=False, extra_opts=args) # make sure we load "densify_until_iter" model
     gaussians.training_setup(opt)
     if checkpoint:
-        (model_params, first_iter) = torch.load(checkpoint)
+        (model_params, first_iter) = torch.load(checkpoint, weights_only=False)
         gaussians.restore(model_params, opt)
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
@@ -126,7 +126,7 @@ def leave_one_out_training(args, dataset, opt, pipe, testing_iterations, saving_
 
     # in the end, we use the cached gaussians and the final gaussians to get the \delta gaussians
     cur_status = gaussians.cache
-    pre_status = torch.load(os.path.join(args.model_path, 'gaussians_cache.pth'))
+    pre_status = torch.load(os.path.join(args.model_path, 'gaussians_cache.pth'), weights_only=False)
     diffs = {}
     keys = ['_xyz', '_features_dc', '_features_rest', '_scaling', '_rotation', '_opacity']
     for key, pre_c, cur_c in zip(keys, pre_status, cur_status):
