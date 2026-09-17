@@ -41,7 +41,7 @@ We first introduce techniques of visual hull and floater elimination which expli
 
 ### CUDA
 
-GaussianObject is tested with CUDA 11.8. If you are using a different version, you can choose to install [nvidia/cuda](https://anaconda.org/nvidia/cuda) in a local conda environment or modify the version of [PyTorch](https://pytorch.org/get-started/previous-versions/) in section [Python Environment](#python-environment).
+GaussianObject is tested with CUDA 11.8. If you are using a different version, you can choose to install [nvidia/cuda](https://anaconda.org/nvidia/cuda) in a local conda environment or modify the version of [PyTorch](https://pytorch.org/get-started/previous-versions/) in section [Python Environment](#python-environment). If you have a Blackwell GPU (RTX 50-series, `sm_120`), CUDA 11.8 will not work at all — see item 4 in [Troubleshooting: Modern GPUs](#troubleshooting-modern-gpus-rtx-50-series--blackwell-sm_120-and-newer-toolchains) for switching to CUDA 12.8.
 
 ### Cloning the Repository
 
@@ -213,6 +213,45 @@ If a specific submodule's build cache is stale from a previous failed attempt, f
 ```sh
 pip install --no-build-isolation --no-cache-dir --force-reinstall ./submodules/<name>
 ```
+
+### Troubleshooting: PyTorch 2.6+ and running the full pipeline on low-VRAM GPUs
+
+The fixes below (already applied in this fork's code, no action needed unless you're diffing against upstream) address issues found while running the full COLMAP-free pipeline end-to-end with a recent PyTorch version and on GPUs with limited VRAM (~8GB).
+
+**`torch.load()` fails with `_pickle.UnpicklingError` / `Weights only load failed`**
+
+PyTorch 2.6 changed `torch.load()`'s default from `weights_only=False` to `weights_only=True`, which rejects checkpoints containing pickled non-tensor objects (e.g. an `argparse.Namespace`). All in-repo `torch.load()` calls (DUSt3R/MASt3R checkpoint loading, `cldm/model.py`, `ldm/`, `threestudio/`, `train_gs.py`, `leave_one_out_stage*.py`) now pass `weights_only=False` explicitly. If you add new checkpoint-loading code, do the same.
+
+**`IndexError: too many indices for array` in `pred_poses.py` when loading masks**
+
+Masks produced by `segment_anything.ipynb` are single-channel grayscale (`mode='L'`), but `pred_poses.py` assumed a 3-channel RGB mask. Fixed by loading masks with `.convert('L')`.
+
+**`torch.OutOfMemoryError` in `train_lora.py` despite LoRA reporting few trainable parameters**
+
+`add_lora()` was called without first freezing the base model, so PyTorch still allocated gradients/activations for the entire base model even though the optimizer only stepped the LoRA parameters. Fixed by calling `model.requires_grad_(False)` right after loading the base checkpoint, before `add_lora()`.
+
+**`RuntimeError: One of the differentiated Tensors does not require grad` in `train_lora.py`**
+
+`ldm/modules/diffusionmodules/util.py`'s `checkpoint()` used the old reentrant-style `torch.autograd.Function` gradient checkpointing, which is incompatible with a mixed frozen/trainable parameter graph (base model frozen, LoRA trainable). Fixed by switching to `torch.utils.checkpoint.checkpoint(func, *inputs, use_reentrant=False)`.
+
+**`TypeError: PeakSignalNoiseRatio.__init__() missing 1 required positional argument: 'data_range'` in `train_repair.py`**
+
+Newer `torchmetrics` requires `data_range` explicitly. Fixed with `PSNR(data_range=1.0)` in `threestudio/systems/gaussian_object_system.py`.
+
+**`torch.OutOfMemoryError` while loading `v1-5-pruned.ckpt` in `train_repair.py`'s `on_fit_start()`**
+
+The checkpoint was being loaded with `location='cuda'`, materializing the full checkpoint on GPU before the target module was itself moved there. Fixed by loading with `location='cpu'` in `threestudio/systems/gaussian_object_system.py` (the state dict still ends up on GPU once copied into the module).
+
+**Running on GPUs with less VRAM than `train_lora.py` / `train_repair.py` expect (roughly <10GB)**
+
+The fixes above solve genuine bugs, but on some GPUs (e.g. a laptop RTX 5070 with ~8GB usable VRAM) you may still hit `torch.OutOfMemoryError` purely from a lack of capacity, not a bug. Options that trade a little quality/precision for memory, if needed:
+
+- In `train_lora.py`, pass a smaller `--image_size` (e.g. `192` or `256` instead of the default `512`) — it only affects padding/cropping in `dataset_lora.py`, not the preprocessing pipeline.
+- In `train_lora.py`'s `pl.Trainer(...)` call, set `precision='16-mixed'` instead of `precision=32`.
+- In `configs/gaussian-object-colmap-free.yaml`, set `trainer.precision: "16-mixed"` instead of `32` for `train_repair.py`.
+- If you enable mixed precision for `train_repair.py`, the custom CUDA rasterizer in `gaussian_renderer/__init__.py` is not autocast-aware and will raise `RuntimeError: expected scalar type Float but found Half`. Wrap its rasterizer calls in `with torch.autocast(device_type="cuda", enabled=False):` and cast the tensor arguments (`means3D`, `means2D`, `shs`, `colors_precomp`, `opacity`/`opacities`, `scales`, `rotations`, `cov3D_precomp`, and for `render_w_pose` also `theta`, `rho`) to `.float()` before calling it.
+
+These are not applied in this fork by default (a GPU with ≥16GB, e.g. an RTX 4080 Super, should not need them) — apply them only if you hit an out-of-memory error on your hardware.
 
 ### Pretrained ControlNet Model
 

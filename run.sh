@@ -46,8 +46,7 @@ python train_lora.py --exp_name controlnet_finetune/rabbit \
     --gs_dir output/gs_init/rabbit \
     --loo_dir output/gs_init/rabbit_loo \
     --bg_white --sd_locked --train_lora --use_prompt_list \
-    --add_diffusion_lora --add_control_lora --add_clip_lora --use_dust3r \
-    --image_size 256
+    --add_diffusion_lora --add_control_lora --add_clip_lora --use_dust3r
 
 python train_repair.py \
     --config configs/gaussian-object-colmap-free.yaml \
