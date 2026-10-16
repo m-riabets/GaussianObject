@@ -14,6 +14,7 @@ import sys
 from datetime import datetime
 import numpy as np
 import random
+from PIL import Image
 
 def inverse_sigmoid(x):
     return torch.log(x/(1-x))
@@ -21,11 +22,9 @@ def inverse_sigmoid(x):
 def PILtoTorch(pil_image, resolution):
     # justify the resolution, if resolution is already the same as the image, then return the image
     if hasattr(pil_image, 'shape'):
-        if pil_image.shape[:2] != resolution[::-1]:
-            pil_image = np.resize(pil_image, resolution)
-    else:
-        if pil_image.size != resolution:
-            pil_image = np.resize(pil_image, resolution)
+        pil_image = Image.fromarray(pil_image)
+    if pil_image.size != resolution:
+        pil_image = pil_image.resize(resolution)
     resized_image = torch.from_numpy(np.array(pil_image)) / 255.0
 
     # test cv2, Conculusion: cv2 is faster than PIL, but the resize result is different
